@@ -288,6 +288,12 @@ async def compare(body: CompareBody) -> dict[str, Any]:
     }
 
 
+@router.get("/v1/meta/cheatsheet", tags=["管理 / 对比"], summary="四协议字段对照表")
+async def cheatsheet() -> dict[str, Any]:
+    """对照表单独暴露，这样演示台不用跑模型就能先显示它。"""
+    return {"cheatsheet": CHEATSHEET}
+
+
 CHEATSHEET = [
     ("端点", ["/api/chat", "/v1/chat/completions", "/v1/responses", "/v1/messages"]),
     ("输入字段", ["messages", "messages", "input", "messages"]),

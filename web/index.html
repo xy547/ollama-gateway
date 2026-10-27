@@ -330,6 +330,7 @@ async function boot() {
 
   renderModels();
   loadObs();
+  loadCheatsheet();
 }
 
 /* ---------------- 协议列表 ---------------- */
@@ -460,6 +461,16 @@ $("#input").addEventListener("keydown", e => {
 });
 
 /* ---------------- 四协议对比 ---------------- */
+async function loadCheatsheet() {
+  try {
+    const d = await (await fetch("/v1/meta/cheatsheet")).json();
+    const c = $("#cheat");
+    c.innerHTML = `<tr><th>维度</th>${PROTOCOLS.map(p => `<th>${p.name}</th>`).join("")}</tr>` +
+      d.cheatsheet.map(([k, vals]) =>
+        `<tr><td>${k}</td>${vals.map(v => `<td><code>${escapeHtml(v)}</code></td>`).join("")}</tr>`).join("");
+  } catch { }
+}
+
 async function compare() {
   const prompt = $("#cmp-input").value.trim();
   if (!prompt) return;
@@ -599,6 +610,14 @@ async function loadObs() {
 $("#reset-stats").onclick = async () => { await fetch("/stats/reset", { method: "POST" }); loadObs(); };
 
 boot();
+
+// 支持 #compare / #models / #obs 直接定位到某个页签（方便做截图和分享链接）
+(function () {
+  const v = location.hash.replace("#", "").trim();
+  if (!v) return;
+  const btn = $(`.tabs button[data-view="${v}"]`);
+  if (btn) btn.click();
+})();
 </script>
 </body>
 </html>
