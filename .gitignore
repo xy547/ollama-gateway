@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 环境与密钥
+.env
+
+# 运行时数据（记忆库、上传的临时文件）
+data/memory.db
+data/*.db
+data/tmp/
+.tmp/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 日志
+*.log

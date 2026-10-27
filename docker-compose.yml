@@ -1,0 +1,44 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      # 只暴露给宿主机调试用；对外服务请走网关
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  gateway:
+    build: .
+    container_name: ollama-gateway
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # 指向 compose 内的 ollama 服务
+      OG_OLLAMA_BASE_URL: http://ollama:11434
+      OG_DEFAULT_MODEL: ${OG_DEFAULT_MODEL:-qwen2.5:1.5b}
+      # 生产环境务必改成自己的 key，多个用逗号分隔；留空则不鉴权
+      OG_API_KEYS: ${OG_API_KEYS:-}
+      OG_RATE_LIMIT_PER_MINUTE: ${OG_RATE_LIMIT_PER_MINUTE:-60}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  ollama-models:

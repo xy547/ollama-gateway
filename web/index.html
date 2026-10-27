@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ollama Gateway · 本地模型对外服务台</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --panel:#ffffff; --ink:#141a24; --muted:#6b7688; --line:#e6e9f0;
+    --brand:#5b5bd6; --brand-2:#8b5cf6; --brand-soft:#eef0ff;
+    --ok:#0e9f6e; --warn:#c2410c; --code-bg:#0f172a; --code-ink:#d6e2f5;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px -12px rgba(16,24,40,.18);
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(900px 500px at 12% -8%, #e8e6ff 0%, transparent 55%),
+      radial-gradient(800px 460px at 92% 0%, #e4f4ff 0%, transparent 50%),
+      var(--bg);
+    color:var(--ink);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .shell{max-width:1320px;margin:0 auto;padding:22px 22px 60px}
+
+  /* ---------- 顶栏 ---------- */
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+  .logo{display:flex;align-items:center;gap:11px}
+  .logo .mark{
+    width:36px;height:36px;border-radius:11px;
+    background:linear-gradient(135deg,var(--brand),var(--brand-2));
+    box-shadow:0 6px 16px -6px rgba(91,91,214,.7);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px;letter-spacing:-.5px;
+  }
+  .logo h1{margin:0;font-size:17px;font-weight:650;letter-spacing:-.2px}
+  .logo p{margin:0;font-size:12px;color:var(--muted)}
+  .pills{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+    background:#fff;border:1px solid var(--line);font-size:12px;color:var(--muted);box-shadow:var(--shadow)
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(14,159,110,.14)}
+  .dot.bad{background:#e02424;box-shadow:0 0 0 3px rgba(224,36,36,.14)}
+
+  /* ---------- Tabs ---------- */
+  .tabs{display:flex;gap:4px;background:#fff;padding:4px;border-radius:12px;border:1px solid var(--line);
+        box-shadow:var(--shadow);width:fit-content;margin-bottom:18px;overflow-x:auto;max-width:100%}
+  .tabs button{
+    border:0;background:transparent;padding:8px 16px;border-radius:9px;font:inherit;font-size:13px;
+    color:var(--muted);cursor:pointer;white-space:nowrap;transition:.18s;font-weight:500
+  }
+  .tabs button:hover{color:var(--ink);background:#f4f5fa}
+  .tabs button.on{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;box-shadow:0 4px 12px -4px rgba(91,91,214,.6)}
+
+  .view{display:none}
+  .view.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---------- 通用卡片 ---------- */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+  .card-h{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .card-h h2{margin:0;font-size:13.5px;font-weight:600}
+  .card-h .sub{font-size:12px;color:var(--muted);margin-left:auto}
+
+  /* ---------- 对话布局 ---------- */
+  .chat-grid{display:grid;grid-template-columns:286px 1fr;gap:16px;align-items:start}
+  @media(max-width:940px){.chat-grid{grid-template-columns:1fr}}
+
+  .side{display:flex;flex-direction:column;gap:14px}
+  .field{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .field:last-child{border-bottom:0}
+  .field > label{display:block;font-size:11.5px;font-weight:600;color:var(--muted);
+                 text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+  select,input[type=text],textarea{
+    width:100%;font:inherit;font-size:13px;color:var(--ink);background:#fbfbfe;
+    border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none;transition:.15s
+  }
+  select:focus,input[type=text]:focus,textarea:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(91,91,214,.1)}
+
+  .proto-list{display:flex;flex-direction:column;gap:5px}
+  .proto{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;cursor:pointer;
+         border:1px solid transparent;transition:.15s}
+  .proto:hover{background:#f7f7fd}
+  .proto.on{background:var(--brand-soft);border-color:#dcdcff}
+  .proto .nm{font-size:13px;font-weight:550}
+  .proto .pa{font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+  .proto .radio{width:14px;height:14px;border-radius:50%;border:2px solid #cbd2e0;flex:none;display:grid;place-items:center}
+  .proto.on .radio{border-color:var(--brand)}
+  .proto.on .radio::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--brand)}
+
+  .augs{display:flex;flex-direction:column;gap:7px}
+  .aug{display:flex;align-items:center;gap:9px;font-size:13px;cursor:pointer;user-select:none}
+  .aug input{display:none}
+  .switch{width:32px;height:18px;border-radius:999px;background:#d7dbe6;position:relative;transition:.18s;flex:none}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+                 background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .aug input:checked + .switch{background:linear-gradient(135deg,var(--brand),var(--brand-2))}
+  .aug input:checked + .switch::after{transform:translateX(14px)}
+  .aug .desc{font-size:11px;color:var(--muted);margin-left:auto}
+
+  .chat-main{display:flex;flex-direction:column;min-height:560px}
+  .messages{flex:1;padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;max-height:52vh;min-height:300px}
+  .empty{color:var(--muted);font-size:13px;text-align:center;margin:auto;line-height:2}
+  .empty code{background:#eef0f7;padding:2px 6px;border-radius:5px;font-size:12px}
+
+  .msg{display:flex;gap:10px;max-width:88%}
+  .msg.user{margin-left:auto;flex-direction:row-reverse}
+  .avatar{width:28px;height:28px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:11px;font-weight:700}
+  .msg.user .avatar{background:#e8eaff;color:var(--brand)}
+  .msg.bot .avatar{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff}
+  .bubble{padding:10px 13px;border-radius:12px;font-size:13.5px;white-space:pre-wrap;word-break:break-word}
+  .msg.user .bubble{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border-bottom-right-radius:4px}
+  .msg.bot .bubble{background:#f4f5fa;border:1px solid var(--line);border-bottom-left-radius:4px}
+  .meta{font-size:11px;color:var(--muted);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap}
+  .tag{background:#eef0f7;padding:1px 7px;border-radius:5px;font-family:ui-monospace,monospace;font-size:10.5px}
+
+  .composer{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:flex-end}
+  .composer textarea{resize:none;height:44px;max-height:140px;line-height:1.5;padding:11px 12px}
+  .send{
+    border:0;border-radius:10px;padding:0 20px;height:44px;font:inherit;font-size:13px;font-weight:600;
+    color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand-2));cursor:pointer;transition:.18s;
+    box-shadow:0 6px 16px -8px rgba(91,91,214,.9);flex:none
+  }
+  .send:hover{filter:brightness(1.06);transform:translateY(-1px)}
+  .send:disabled{opacity:.55;cursor:not-allowed;transform:none}
+
+  .raw-box{margin-top:16px}
+  .raw-box pre{
+    margin:0;background:var(--code-bg);color:var(--code-ink);padding:16px 18px;border-radius:0 0 var(--r) var(--r);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;
+    overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-word
+  }
+
+  /* ---------- 对比视图 ---------- */
+  .cmp-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .cmp-bar input[type=text]{flex:1;min-width:240px;height:42px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:1100px){.grid4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:640px){.grid4{grid-template-columns:1fr}}
+  .cmp-card{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+  .cmp-card .top{padding:11px 13px;border-bottom:1px solid var(--line);background:#fafbff}
+  .cmp-card .top .n{font-size:12.5px;font-weight:650}
+  .cmp-card .top .p{font-size:10.5px;color:var(--muted);font-family:ui-monospace,monospace;margin-top:1px}
+  .cmp-card .body{padding:12px 13px;font-size:12.5px;flex:1;white-space:pre-wrap;word-break:break-word;min-height:110px}
+  .cmp-card .foot{padding:9px 13px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);
+                  display:flex;gap:12px;flex-wrap:wrap;background:#fafbff}
+  .cmp-card.fail .body{color:#b42318}
+
+  table.cheat{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.cheat th,table.cheat td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  table.cheat th{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;background:#fafbff}
+  table.cheat td:first-child{font-weight:550;white-space:nowrap}
+  table.cheat code{font-family:ui-monospace,monospace;font-size:11.5px;background:#f2f4f9;padding:1px 5px;border-radius:4px}
+
+  /* ---------- 模型 / 观测 ---------- */
+  .model-row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);font-size:13px}
+  .model-row:last-child{border-bottom:0}
+  .model-row .name{font-family:ui-monospace,monospace;font-weight:600}
+  .model-row .cap{font-size:11px;color:var(--muted)}
+  .bar{height:6px;border-radius:99px;background:#eef0f7;overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--brand),var(--brand-2));transition:width .3s}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+  .kpi .v{font-size:24px;font-weight:650;letter-spacing:-.5px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
+          -webkit-background-clip:text;background-clip:text;color:transparent}
+  .kpi .l{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .muted{color:var(--muted);font-size:12.5px}
+  .err{color:#b42318}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="logo">
+      <div class="mark">OG</div>
+      <div>
+        <h1>Ollama Gateway</h1>
+        <p>本地模型 · 四协议统一 · 可插外挂 · 可对外服务</p>
+      </div>
+    </div>
+    <div class="pills">
+      <span class="pill"><i class="dot" id="d-svc"></i><span id="t-svc">连接中</span></span>
+      <span class="pill"><i class="dot" id="d-model"></i><span id="t-model">模型</span></span>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="on" data-view="chat">对话</button>
+    <button data-view="compare">四协议对比</button>
+    <button data-view="models">模型管理</button>
+    <button data-view="obs">观测</button>
+  </div>
+
+  <!-- ================= 对话 ================= -->
+  <section class="view on" id="v-chat">
+    <div class="chat-grid">
+      <div class="side">
+        <div class="card">
+          <div class="card-h"><h2>协议</h2><span class="sub">同一内核</span></div>
+          <div class="field"><div class="proto-list" id="protos"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2>外挂</h2><span class="sub">可叠加</span></div>
+          <div class="field">
+            <div class="augs">
+              <label class="aug"><input type="checkbox" data-aug="guard" checked><span class="switch"></span>护栏<span class="desc">脱敏/限长</span></label>
+              <label class="aug"><input type="checkbox" data-aug="rag"><span class="switch"></span>知识库<span class="desc">检索注入</span></label>
+              <label class="aug"><input type="checkbox" data-aug="tools"><span class="switch"></span>工具<span class="desc">函数调用</span></label>
+              <label class="aug"><input type="checkbox" data-aug="memory"><span class="switch"></span>记忆<span class="desc">跨轮历史</span></label>
+            </div>
+          </div>
+          <div class="field">
+            <label>模型</label>
+            <select id="model-sel"></select>
+          </div>
+          <div class="field">
+            <label>会话 ID（记忆用）</label>
+            <input type="text" id="sess" value="demo-1" />
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-main card">
+        <div class="card-h">
+          <h2 id="chat-title">Ollama 原生</h2>
+          <span class="sub" id="chat-path">POST /api/chat</span>
+        </div>
+        <div class="messages" id="msgs">
+          <div class="empty">
+            试试这几句 ——<br>
+            <code>现在几点了？</code> · <code>(23*7+5)/2 等于多少</code> · <code>知识库里关于 BM25 说了什么</code>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea id="input" placeholder="说点什么…  (Enter 发送 / Shift+Enter 换行)"></textarea>
+          <button class="send" id="send">发送</button>
+        </div>
+      </div>
+    </div>
+    <div class="card raw-box">
+      <div class="card-h"><h2>原始响应</h2><span class="sub">这是客户端真正收到的字节</span></div>
+      <pre id="raw">（还没有请求）</pre>
+    </div>
+  </section>
+
+  <!-- ================= 对比 ================= -->
+  <section class="view" id="v-compare">
+    <div class="cmp-bar">
+      <input type="text" id="cmp-input" value="用两句话解释什么是 BM25，并给出一个公式" />
+      <button class="send" id="cmp-go">四种协议一起跑</button>
+    </div>
+    <div class="grid4" id="cmp-out"></div>
+    <div class="card" style="margin-top:18px">
+      <div class="card-h"><h2>字段对照表</h2><span class="sub">同一件事，四种说法</span></div>
+      <div style="overflow:auto"><table class="cheat" id="cheat"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= 模型 ================= -->
+  <section class="view" id="v-models">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h"><h2>下载模型</h2><span class="sub">走 /api/pull，实时进度</span></div>
+      <div class="field">
+        <div style="display:flex;gap:10px">
+          <input type="text" id="pull-name" value="qwen2.5:1.5b" placeholder="如 qwen2.5:1.5b" />
+          <button class="send" id="pull-go" style="height:38px">下载</button>
+        </div>
+        <div class="bar"><i id="pull-bar"></i></div>
+        <div class="muted" id="pull-status" style="margin-top:6px">空闲</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>已安装</h2><span class="sub" id="model-count"></span></div>
+      <div id="model-list"></div>
+    </div>
+  </section>
+
+  <!-- ================= 观测 ================= -->
+  <section class="view" id="v-obs">
+    <div class="kpis" id="kpis"></div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h"><h2>分协议用量</h2><button class="send" id="reset-stats" style="height:30px;padding:0 14px;font-size:12px">清空</button></div>
+      <div id="by-proto" style="padding:6px 0"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>知识库</h2><span class="sub">BM25 索引状态</span></div>
+      <div class="field" id="kb"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+const PROTOCOLS = [
+  { id: "ollama", name: "Ollama 原生", path: "/api/chat", hint: "NDJSON 流式" },
+  { id: "openai-chat", name: "OpenAI Chat", path: "/v1/chat/completions", hint: "行业事实标准" },
+  { id: "openai-responses", name: "OpenAI Responses", path: "/v1/responses", hint: "新接口，结构不同" },
+  { id: "anthropic", name: "Anthropic Messages", path: "/v1/messages", hint: "max_tokens 必填" },
+];
+
+let curProto = "ollama";
+let models = [];
+
+/* ---------------- 顶部状态 ---------------- */
+async function boot() {
+  try {
+    const r = await fetch("/readyz");
+    const d = await r.json();
+    $("#d-svc").className = "dot " + (r.ok ? "ok" : "bad");
+    $("#t-svc").textContent = r.ok ? "服务正常" : (d.status || "异常");
+    models = d.models || [];
+  } catch {
+    $("#d-svc").className = "dot bad";
+    $("#t-svc").textContent = "服务未启动";
+  }
+  $("#d-model").className = "dot " + (models.length ? "ok" : "bad");
+  $("#t-model").textContent = models.length ? `${models.length} 个模型` : "无模型";
+
+  $("#model-sel").innerHTML = models.length
+    ? models.map(m => `<option value="${m}">${m}</option>`).join("")
+    : `<option value="">（请先下载模型）</option>`;
+  // 优先选带 tools 能力的
+  const prefer = models.find(m => m.includes("qwen2.5")) || models[0];
+  if (prefer) $("#model-sel").value = prefer;
+
+  renderModels();
+  loadObs();
+}
+
+/* ---------------- 协议列表 ---------------- */
+$("#protos").innerHTML = PROTOCOLS.map(p => `
+  <div class="proto ${p.id === curProto ? "on" : ""}" data-p="${p.id}">
+    <span class="radio"></span>
+    <span style="flex:1">
+      <div class="nm">${p.name}</div>
+      <div class="pa">${p.path}</div>
+    </span>
+  </div>`).join("");
+
+$$(".proto").forEach(el => el.onclick = () => {
+  curProto = el.dataset.p;
+  $$(".proto").forEach(x => x.classList.toggle("on", x === el));
+  const p = PROTOCOLS.find(x => x.id === curProto);
+  $("#chat-title").textContent = p.name;
+  $("#chat-path").textContent = `POST ${p.path}`;
+});
+
+/* ---------------- Tabs ---------------- */
+$$(".tabs button").forEach(b => b.onclick = () => {
+  $$(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  $$(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + b.dataset.view));
+  if (b.dataset.view === "obs") loadObs();
+  if (b.dataset.view === "models") renderModels();
+});
+
+/* ---------------- 构造各协议请求体 ---------------- */
+function buildBody(proto, text) {
+  const model = $("#model-sel").value;
+  const augs = $$('input[data-aug]:checked').map(x => x.dataset.aug);
+  const sid = $("#sess").value.trim();
+  const withMeta = o => ({ ...o, augmentations: augs, ...(augs.includes("memory") ? { session_id: sid } : {}) });
+
+  if (proto === "ollama") return withMeta({
+    model, stream: false, messages: [{ role: "user", content: text }],
+    options: { temperature: 0.4, num_predict: 512 },
+  });
+  if (proto === "openai-chat") return withMeta({
+    model, stream: false, temperature: 0.4, max_tokens: 512,
+    messages: [{ role: "user", content: text }],
+  });
+  if (proto === "openai-responses") return withMeta({
+    model, stream: false, temperature: 0.4, max_output_tokens: 512,
+    input: text, instructions: "你是一个简洁的中文助手。",
+  });
+  return withMeta({
+    model, stream: false, temperature: 0.4, max_tokens: 512,
+    system: "你是一个简洁的中文助手。",
+    messages: [{ role: "user", content: text }],
+  });
+}
+
+/* ---------------- 从各协议响应里取文本 ---------------- */
+function extractText(proto, d) {
+  try {
+    if (proto === "ollama") return d.message?.content || "";
+    if (proto === "openai-chat") return d.choices?.[0]?.message?.content || "";
+    if (proto === "openai-responses") {
+      const m = (d.output || []).find(x => x.type === "message");
+      return (m?.content || []).map(c => c.text).join("");
+    }
+    if (proto === "anthropic") return (d.content || []).filter(c => c.type === "text").map(c => c.text).join("");
+  } catch { }
+  return "";
+}
+
+/* ---------------- 发消息 ---------------- */
+function addMsg(role, text, meta) {
+  const box = $("#msgs");
+  if ($(".empty", box)) box.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "msg " + (role === "user" ? "user" : "bot");
+  el.innerHTML = `<div class="avatar">${role === "user" ? "你" : "AI"}</div>
+    <div><div class="bubble"></div><div class="meta"></div></div>`;
+  $(".bubble", el).textContent = text;
+  if (meta) {
+    $(".meta", el).innerHTML = meta.map(m => `<span class="tag">${m}</span>`).join("");
+  }
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+async function send() {
+  const text = $("#input").value.trim();
+  if (!text) return;
+  const proto = curProto;
+  const p = PROTOCOLS.find(x => x.id === proto);
+  addMsg("user", text);
+  $("#input").value = "";
+  const btn = $("#send");
+  btn.disabled = true; btn.textContent = "…";
+  const t0 = performance.now();
+
+  try {
+    const r = await fetch(p.path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildBody(proto, text)),
+    });
+    const d = await r.json();
+    const dt = Math.round(performance.now() - t0);
+    $("#raw").textContent = JSON.stringify(d, null, 2);
+
+    if (!r.ok) {
+      const msg = d.error?.message || JSON.stringify(d);
+      addMsg("bot", "请求失败：" + msg);
+    } else {
+      const txt = extractText(proto, d) || "（模型没有返回文本，可能是触发了工具调用）";
+      const meta = [p.name, `${dt}ms`];
+      if (d.usage) meta.push(`tokens ${d.usage.prompt_tokens ?? d.usage.input_tokens ?? 0}→${d.usage.completion_tokens ?? d.usage.output_tokens ?? 0}`);
+      if (d.augmentations_used?.length) meta.push(...d.augmentations_used);
+      if (d.tool_trace?.length) meta.push(`工具 ${d.tool_trace.length} 次`);
+      addMsg("bot", txt, meta);
+    }
+  } catch (e) {
+    addMsg("bot", "网络错误：" + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "发送";
+  }
+}
+
+$("#send").onclick = send;
+$("#input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+/* ---------------- 四协议对比 ---------------- */
+async function compare() {
+  const prompt = $("#cmp-input").value.trim();
+  if (!prompt) return;
+  const out = $("#cmp-out");
+  out.innerHTML = `<div class="muted" style="grid-column:1/-1;padding:8px">正在依次请求四种协议…（小模型可能要几十秒）</div>`;
+  const btn = $("#cmp-go");
+  btn.disabled = true;
+
+  try {
+    const r = await fetch("/api/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, model: $("#model-sel").value, max_tokens: 220, augmentations: [] }),
+    });
+    const d = await r.json();
+    if (!r.ok) { out.innerHTML = `<div class="err">${d.detail || JSON.stringify(d)}</div>`; return; }
+
+    out.innerHTML = d.results.map(res => {
+      const u = res.usage || {};
+      const body = res.ok ? (res.text || "（空）") : ("失败：" + res.error);
+      return `<div class="cmp-card ${res.ok ? "" : "fail"}">
+        <div class="top"><div class="n">${PROTOCOLS.find(p => p.id === res.protocol)?.name || res.protocol}</div>
+          <div class="p">POST ${res.path}</div></div>
+        <div class="body">${escapeHtml(body)}</div>
+        <div class="foot">
+          <span>${res.latency_ms}ms</span>
+          <span>${u.prompt ?? 0}→${u.completion ?? 0} tok</span>
+          <span>${res.finish || ""}</span>
+        </div>
+      </div>`;
+    }).join("");
+
+    const c = $("#cheat");
+    c.innerHTML = `<tr><th>维度</th>${PROTOCOLS.map(p => `<th>${p.name}</th>`).join("")}</tr>` +
+      d.cheatsheet.map(([k, vals]) =>
+        `<tr><td>${k}</td>${vals.map(v => `<td><code>${escapeHtml(v)}</code></td>`).join("")}</tr>`).join("");
+  } catch (e) {
+    out.innerHTML = `<div class="err">出错：${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("#cmp-go").onclick = compare;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+/* ---------------- 模型管理 ---------------- */
+async function renderModels() {
+  try {
+    const r = await fetch("/api/models");
+    const d = await r.json();
+    $("#model-count").textContent = `${d.count} 个`;
+    $("#model-list").innerHTML = (d.models || []).map(m => `
+      <div class="model-row">
+        <span class="name">${m.name}</span>
+        <span class="cap">${m.parameter_size || ""} · ${m.quantization || ""} · ${m.size_gb}GB</span>
+        <span class="cap" style="margin-left:auto">${(m.capabilities || []).join(" / ")}</span>
+        <button class="send" style="height:28px;padding:0 12px;font-size:12px;background:#fee4e2;color:#b42318;box-shadow:none"
+          onclick="delModel('${m.name}')">删除</button>
+      </div>`).join("") || `<div class="model-row muted">还没有模型，去上面下载一个</div>`;
+  } catch { }
+}
+
+async function delModel(name) {
+  if (!confirm(`确定删除 ${name}？`)) return;
+  await fetch("/api/models/" + encodeURIComponent(name), { method: "DELETE" });
+  boot();
+}
+
+$("#pull-go").onclick = () => {
+  const name = $("#pull-name").value.trim();
+  if (!name) return;
+  $("#pull-status").textContent = "正在连接…";
+  $("#pull-bar").style.width = "0%";
+  fetch("/api/models/pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: name }),
+  }).then(async resp => {
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") { $("#pull-status").textContent = "完成"; boot(); continue; }
+        try {
+          const e = JSON.parse(payload);
+          if (e.error) { $("#pull-status").innerHTML = `<span class="err">${e.error}</span>`; continue; }
+          if (e.percent !== undefined) {
+            $("#pull-bar").style.width = e.percent + "%";
+            $("#pull-status").textContent = `${e.status} ${e.percent}%`;
+          } else {
+            $("#pull-status").textContent = e.status || "";
+          }
+        } catch { }
+      }
+    }
+  });
+};
+
+/* ---------------- 观测 ---------------- */
+async function loadObs() {
+  try {
+    const s = await (await fetch("/stats")).json();
+    const kb = await (await fetch("/api/knowledge")).json();
+    const totTok = Object.values(s.by_protocol || {}).reduce((a, b) => a + b.prompt_tokens + b.completion_tokens, 0);
+    $("#kpis").innerHTML = `
+      <div class="kpi"><div class="v">${s.total_requests}</div><div class="l">累计请求</div></div>
+      <div class="kpi"><div class="v">${totTok}</div><div class="l">累计 tokens</div></div>
+      <div class="kpi"><div class="v">${s.rate_limit_per_minute}</div><div class="l">限流 / 分钟</div></div>
+      <div class="kpi"><div class="v">${s.auth_enabled ? "开" : "关"}</div><div class="l">API Key 鉴权</div></div>`;
+
+    const rows = Object.entries(s.by_protocol || {});
+    $("#by-proto").innerHTML = rows.length ? rows.map(([k, v]) => `
+      <div class="model-row">
+        <span class="name">${k}</span>
+        <span class="cap">${v.requests} 次</span>
+        <span class="cap">${v.prompt_tokens}→${v.completion_tokens} tok</span>
+        <span class="cap" style="margin-left:auto">平均 ${v.avg_latency_ms}ms</span>
+      </div>`).join("") : `<div class="model-row muted">还没有请求记录</div>`;
+
+    $("#kb").innerHTML = `
+      <div class="muted">目录：<code>${kb.docs_dir}</code></div>
+      <div class="muted" style="margin-top:6px">${kb.documents} 篇文档 · ${kb.chunks} 个切片 · ${kb.vocab} 个词项</div>
+      <div class="muted" style="margin-top:2px">${kb.documents ? "" : "把 .md/.txt 丢进 data/docs，或调用 POST /api/knowledge"}</div>`;
+  } catch { }
+}
+$("#reset-stats").onclick = async () => { await fetch("/stats/reset", { method: "POST" }); loadObs(); };
+
+boot();
+</script>
+</body>
+</html>
